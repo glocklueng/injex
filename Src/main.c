@@ -52,7 +52,7 @@ osMessageQId buttonEventsHandle;
 osMessageQId encoderEventsHandle;
 
 /* USER CODE BEGIN PV */
-
+QueueHandle_t xInputEvents;
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE END PV */
@@ -144,6 +144,7 @@ int main(void)
 
   /* USER CODE BEGIN RTOS_QUEUES */
 	/* add queues, ... */
+  xInputEvents = xQueueCreate( 32, sizeof( struct Event ) );
   /* USER CODE END RTOS_QUEUES */
  
 
@@ -256,7 +257,7 @@ void MX_TIM2_Init(void)
   TIM_MasterConfigTypeDef sMasterConfig;
 
   htim2.Instance = TIM2;
-  htim2.Init.Prescaler = 7200;
+  htim2.Init.Prescaler = 720;
   htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
   htim2.Init.Period = 100;
   htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;

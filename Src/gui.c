@@ -12,16 +12,14 @@ void main_menu_page(void);
 void main_page(void);
 void edit_start_point_page(void);
 void edit_end_point_page(void);
-
+void carriage_docking(uint8_t stage);
 // Structures, responsible for sending through queue
 enum InputType { BUTTON, ENCODER };
 enum ButtonEvent {BUTTON_PRESSED};
+enum {DOCKING_FIRST_STAGE, DOCKING_SECOND_STAGE};
 
-struct Event {
-	uint8_t input_type: 4;
-	uint8_t id: 4;
-	int8_t data;
-};
+int32_t carriage_position = 0;
+bool carriage_docked = false;
 
 // Structures, responsible for hardware interface
 struct ButtonState {
@@ -52,7 +50,7 @@ struct ButtonState button_states[] =  {
 
 
 u8g_t u8g;
-QueueHandle_t xInputEvents;
+extern QueueHandle_t xInputEvents;
 
 enum GUI_State {
 	MAIN_PAGE,
@@ -352,8 +350,8 @@ void edit_end_point_page()
 
 void guiFunc(void const * argument)
 {
+	carriage_docking(DOCKING_FIRST_STAGE);
 	u8g_InitComFn(&u8g, &u8g_dev_ssd1306_128x64_hw_spi, u8g_com_hw_spi_fn);
-	xInputEvents = xQueueCreate( 32, sizeof( struct Event ) );
 	for(;;)
 	{
 		switch (current_state)
@@ -498,5 +496,98 @@ void buttonScanFunc(void const * argument)
 		}
 		encoder_prev_value = TIM1->CNT;
 		osDelay(1);
+	}
+}
+
+
+volatile uint32_t position_counter = 0;
+volatile uint32_t position_counter_limit = 0;
+enum {FORWARD, BACK};
+uint8_t direction = FORWARD;
+volatile bool motor_enabled = false;
+
+void move_to_start(uint16_t speed_factor, bool is_microstep)
+{
+	if (is_microstep)
+		HAL_GPIO_WritePin(MS2_GPIO_Port, MS2_Pin, GPIO_PIN_SET);
+	else
+		HAL_GPIO_WritePin(MS2_GPIO_Port, MS2_Pin, GPIO_PIN_RESET);
+	TIM2->ARR = speed_factor;
+	HAL_GPIO_WritePin(DIR_GPIO_Port, DIR_Pin, GPIO_PIN_SET);
+	HAL_GPIO_WritePin(MOTOR_EN_GPIO_Port, MOTOR_EN_Pin, GPIO_PIN_RESET);
+	position_counter = 0;
+	position_counter_limit = 0xffffffff;
+	direction = BACK;
+	motor_enabled = true;
+	while (motor_enabled)
+		osDelay(10);
+}
+
+void move(uint16_t speed_factor, bool is_microstep, uint8_t direction, uint32_t distance)
+{
+	if (direction == FORWARD)
+		HAL_GPIO_WritePin(DIR_GPIO_Port, DIR_Pin, GPIO_PIN_RESET);
+	else if (direction == BACK)
+		HAL_GPIO_WritePin(DIR_GPIO_Port, DIR_Pin, GPIO_PIN_SET);
+
+	if (is_microstep)
+		HAL_GPIO_WritePin(MS2_GPIO_Port, MS2_Pin, GPIO_PIN_SET);
+	else
+		HAL_GPIO_WritePin(MS2_GPIO_Port, MS2_Pin, GPIO_PIN_RESET);
+	HAL_GPIO_WritePin(MOTOR_EN_GPIO_Port, MOTOR_EN_Pin, GPIO_PIN_RESET);
+	TIM2->ARR = speed_factor;
+	position_counter = 0;
+	position_counter_limit = distance;
+	motor_enabled = true;
+	while (motor_enabled)
+		osDelay(5);
+}
+
+
+void carriage_docking(uint8_t stage)
+{
+	const int speed_factor_1 = 8;
+	const int speed_factor_2 = 25;
+
+	move_to_start(speed_factor_1, true);
+	move(speed_factor_2, true, FORWARD, 3500);
+	move_to_start(speed_factor_2, true);
+}
+
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
+{
+  if (htim->Instance == TIM2)
+  {
+	  if (motor_enabled && (position_counter < position_counter_limit))
+	  {
+		  HAL_GPIO_TogglePin(GPIOB, STEP_Pin);
+		  position_counter++;
+	  } else
+	  {
+		  motor_enabled = false;
+	  }
+  }
+}
+
+
+void disable_motor()
+{
+	HAL_GPIO_WritePin(GPIOB, MOTOR_EN_Pin, GPIO_PIN_SET);
+	motor_enabled = false;
+}
+
+void enable_motor()
+{
+	HAL_GPIO_WritePin(GPIOB, MOTOR_EN_Pin, GPIO_PIN_RESET);
+	motor_enabled = true;
+}
+
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
+{
+	if (GPIO_Pin == HALL_OUT_Pin)
+	{
+		if (HAL_GPIO_ReadPin(GPIOA, HALL_OUT_Pin) == GPIO_PIN_RESET) {
+			disable_motor();
+		}
 	}
 }

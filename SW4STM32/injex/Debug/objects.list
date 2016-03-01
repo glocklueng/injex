@@ -124,6 +124,5 @@
 "Application/User/main.o"
 "Application/User/motor_control.o"
 "Application/User/stm32f1xx_hal_msp.o"
-"Application/User/stm32f1xx_hal_timebase_TIM.o"
 "Application/User/stm32f1xx_it.o"
 "Application/SW4STM32/startup_stm32f103xb.o"
