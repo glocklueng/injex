@@ -48,11 +48,13 @@ TIM_HandleTypeDef htim2;
 osThreadId defaultTaskHandle;
 osThreadId buttonScanTaskHandle;
 osThreadId guiTaskHandle;
+osThreadId motorTaskHandle;
 osMessageQId buttonEventsHandle;
 osMessageQId encoderEventsHandle;
 
 /* USER CODE BEGIN PV */
 QueueHandle_t xInputEvents;
+QueueHandle_t xMotorEvents;
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE END PV */
@@ -66,10 +68,10 @@ static void MX_TIM2_Init(void);
 void StartDefaultTask(void const * argument);
 extern void buttonScanFunc(void const * argument);
 extern void guiFunc(void const * argument);
+extern void motorFunc(void const * argument);
 
 /* USER CODE BEGIN PFP */
 /* Private function prototypes -----------------------------------------------*/
-
 /* USER CODE END PFP */
 
 /* USER CODE BEGIN 0 */
@@ -118,7 +120,7 @@ int main(void)
 
   /* Create the thread(s) */
   /* definition and creation of defaultTask */
-  osThreadDef(defaultTask, StartDefaultTask, osPriorityNormal, 0, 128);
+  osThreadDef(defaultTask, StartDefaultTask, osPriorityNormal, 0, 64);
   defaultTaskHandle = osThreadCreate(osThread(defaultTask), NULL);
 
   /* definition and creation of buttonScanTask */
@@ -128,6 +130,10 @@ int main(void)
   /* definition and creation of guiTask */
   osThreadDef(guiTask, guiFunc, osPriorityNormal, 0, 128);
   guiTaskHandle = osThreadCreate(osThread(guiTask), NULL);
+
+  /* definition and creation of motorTask */
+  osThreadDef(motorTask, motorFunc, osPriorityAboveNormal, 0, 64);
+  motorTaskHandle = osThreadCreate(osThread(motorTask), NULL);
 
   /* USER CODE BEGIN RTOS_THREADS */
 	/* add threads, ... */
@@ -144,7 +150,8 @@ int main(void)
 
   /* USER CODE BEGIN RTOS_QUEUES */
 	/* add queues, ... */
-  xInputEvents = xQueueCreate( 32, sizeof( struct Event ) );
+  xInputEvents = xQueueCreate( 8, sizeof( struct Event ) );
+  xMotorEvents = xQueueCreate( 4, sizeof( struct MotorEvent ) );
   /* USER CODE END RTOS_QUEUES */
  
 

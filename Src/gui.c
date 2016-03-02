@@ -9,13 +9,18 @@
 void update_menu(void);
 void draw_menu(void);
 void main_menu_page(void);
+void init_page(void);
 void main_page(void);
 void edit_start_point_page(void);
 void edit_end_point_page(void);
-void carriage_docking(uint8_t stage);
+void carriage_docking(void);
 // Structures, responsible for sending through queue
 enum InputType { BUTTON, ENCODER };
 enum ButtonEvent {BUTTON_PRESSED};
+enum MotorEventType {
+	DOCK_CARRIAGE,
+	MOVE,
+};
 enum {DOCKING_FIRST_STAGE, DOCKING_SECOND_STAGE};
 
 int32_t carriage_position = 0;
@@ -51,8 +56,10 @@ struct ButtonState button_states[] =  {
 
 u8g_t u8g;
 extern QueueHandle_t xInputEvents;
+extern QueueHandle_t xMotorEvents;
 
 enum GUI_State {
+	INIT_PAGE,
 	MAIN_PAGE,
 	MENU_PAGE,
 	START_POSITION_PAGE,
@@ -62,7 +69,32 @@ enum GUI_State {
 
 
 
-enum GUI_State current_state = MENU_PAGE;
+enum GUI_State current_state = INIT_PAGE;
+
+void init_page()
+{
+	int n_wait;
+	struct Event buffer_event;
+	if ( (n_wait = uxQueueMessagesWaiting(xInputEvents)) != 0 )
+	{
+		xQueueReceive(xInputEvents, &buffer_event, 0);
+		if (buffer_event.input_type == BUTTON)
+		{
+			struct MotorEvent send_event = {.event_type = DOCK_CARRIAGE };
+			xQueueSend(xMotorEvents, &send_event, portMAX_DELAY);
+			current_state = MAIN_PAGE;
+		}
+	}
+
+	u8g_FirstPage(&u8g);
+	do
+	{
+		u8g.font = u8g_font_7x14;
+		u8g_DrawStr(&u8g, 17, 45, "Press any key");
+		u8g_DrawStr(&u8g, 25, 60, "for init");
+	} while (u8g_NextPage(&u8g));
+	osDelay(20);
+}
 
 
 void main_page()
@@ -77,15 +109,12 @@ void main_page()
     const uint8_t cursor_offset = 4;
 	cursor.x = cursor_offset + cursor.cursor_position * cursor.width;
 
-	static uint8_t editing_symbol_position = 0; // From right to left
 	static int32_t time = 0;
-	static int i = 0;
 	int n_wait;
-	static uint8_t cursor_position = 8;
 	struct Event buffer_event;
 	char debug_buffer[15] = "";
 	char timer_buffer[9] = "";
-	char cursor_buffer[9] = "";
+
 	uint8_t hh, mm, ss; // Separate values for hh:mm:ss format
 	ss = time % 60;
 	hh = (time / 3600);
@@ -165,14 +194,12 @@ void main_page()
 void main_menu_page()
 {
 	static int8_t menu_current = 0;
-	uint8_t menu_redraw_required = 0;
 	#define MENU_ITEMS 2
 	char *menu_strings[MENU_ITEMS] = { "Edit Start Point", "Edit End Point"};
 	const int encoder_division = 4;
 	int n_wait = 0;
 	struct Event buffer_event;
 	static int8_t encoder_rot_buffer = 0;
-	char debug_buffer[15] = "";
 
 	if ( (n_wait = uxQueueMessagesWaiting(xInputEvents)) != 0 )
 	{
@@ -246,14 +273,12 @@ void main_menu_page()
 void edit_start_point_page()
 {
 	const int encoder_division = 4;
-	static uint8_t editing_symbol_position = 0; // From right to left
 	static int32_t start_carriage_position = 0;
-	static int i = 0;
+	static int32_t previous_carriage_position = 0;
 	int n_wait;
 	struct Event buffer_event;
 	char debug_buffer[15] = "";
 	char start_position_buffer[9] = "";
-	char cursor_buffer[9] = "";
 
 	if ( (n_wait = uxQueueMessagesWaiting(xInputEvents)) != 0 )
 	{
@@ -266,6 +291,10 @@ void edit_start_point_page()
 			{
 				start_carriage_position = 0;
 			}
+			struct MotorEvent send_event = {.event_type = MOVE,
+					.data =  (previous_carriage_position - start_carriage_position)};
+			xQueueSend(xMotorEvents, &send_event, portMAX_DELAY);
+			previous_carriage_position = start_carriage_position;
 		} else if (buffer_event.input_type == BUTTON)
 		{
 			switch (buffer_event.id)
@@ -298,9 +327,7 @@ void edit_end_point_page()
 {
 	const int encoder_division = 4;
 	const int DEFAULT_END_POSITION = 50;
-	static uint8_t editing_symbol_position = 0; // From right to left
 	static int32_t end_carriage_position = 0;
-	static int i = 0;
 	int n_wait;
 	struct Event buffer_event;
 	char debug_buffer[15] = "";
@@ -350,7 +377,6 @@ void edit_end_point_page()
 
 void guiFunc(void const * argument)
 {
-	carriage_docking(DOCKING_FIRST_STAGE);
 	u8g_InitComFn(&u8g, &u8g_dev_ssd1306_128x64_hw_spi, u8g_com_hw_spi_fn);
 	for(;;)
 	{
@@ -367,6 +393,9 @@ void guiFunc(void const * argument)
 			break;
 		case STOP_POSITION_PAGE:
 			edit_end_point_page();
+			break;
+		case INIT_PAGE:
+			init_page();
 			break;
 		}
 	}
@@ -506,6 +535,8 @@ enum {FORWARD, BACK};
 uint8_t direction = FORWARD;
 volatile bool motor_enabled = false;
 
+
+
 void move_to_start(uint16_t speed_factor, bool is_microstep)
 {
 	if (is_microstep)
@@ -523,8 +554,13 @@ void move_to_start(uint16_t speed_factor, bool is_microstep)
 		osDelay(10);
 }
 
+
+#define MICROSTEP_FACTOR 4
+#define MAX_LENGTH 18600
 void move(uint16_t speed_factor, bool is_microstep, uint8_t direction, uint32_t distance)
 {
+	uint8_t mult_coef = 1;
+	mult_coef = is_microstep ? MICROSTEP_FACTOR : 1;
 	if (direction == FORWARD)
 		HAL_GPIO_WritePin(DIR_GPIO_Port, DIR_Pin, GPIO_PIN_RESET);
 	else if (direction == BACK)
@@ -537,20 +573,21 @@ void move(uint16_t speed_factor, bool is_microstep, uint8_t direction, uint32_t 
 	HAL_GPIO_WritePin(MOTOR_EN_GPIO_Port, MOTOR_EN_Pin, GPIO_PIN_RESET);
 	TIM2->ARR = speed_factor;
 	position_counter = 0;
-	position_counter_limit = distance;
+	position_counter_limit = mult_coef * distance;
 	motor_enabled = true;
 	while (motor_enabled)
-		osDelay(5);
+		osDelay(10);
+	HAL_GPIO_WritePin(MOTOR_EN_GPIO_Port, MOTOR_EN_Pin, GPIO_PIN_SET);
+
 }
 
-
-void carriage_docking(uint8_t stage)
+void carriage_docking()
 {
 	const int speed_factor_1 = 8;
-	const int speed_factor_2 = 25;
-
-	move_to_start(speed_factor_1, true);
-	move(speed_factor_2, true, FORWARD, 3500);
+	const int speed_factor_2 = 16;
+	if (HAL_GPIO_ReadPin(GPIOA, HALL_OUT_Pin) == GPIO_PIN_SET)
+		move_to_start(speed_factor_1, true);
+	move(speed_factor_2, true, FORWARD, 500);
 	move_to_start(speed_factor_2, true);
 }
 
@@ -591,3 +628,30 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 		}
 	}
 }
+
+
+void motorFunc(void const * argument)
+{
+	uint8_t n_wait;
+	struct MotorEvent buffer_event;
+	for (;;)
+	{
+		if ( (n_wait = uxQueueMessagesWaiting(xMotorEvents)) != 0 )
+			{
+				xQueueReceive(xMotorEvents, &buffer_event, 0);
+				if (buffer_event.event_type == DOCK_CARRIAGE)
+				{
+					carriage_docking();
+				} else if (buffer_event.event_type == MOVE)
+				{
+					uint8_t dir = 1;
+					dir = (buffer_event.data < 0) ? FORWARD : BACK;
+					move(20, true, dir, abs(buffer_event.data)*40);
+
+				}
+			}
+		osDelay(100);
+	}
+}
+
+
