@@ -18,8 +18,11 @@ struct Event {
 
 struct MotorEvent {
 	uint8_t event_type;
-	uint16_t add_data;
-	int32_t data;
+	uint32_t add_data;
+	union {
+		int32_t data;
+		float abs_dist;
+	};
 };
 
 extern TIM_HandleTypeDef htim2;

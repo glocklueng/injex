@@ -14,12 +14,22 @@ void main_page(void);
 void edit_start_point_page(void);
 void edit_end_point_page(void);
 void carriage_docking(void);
+uint32_t abs_to_internal(float abs_position);
+float internal_to_abs(uint32_t int_position);
+void move_by_time(uint32_t time_sec, uint8_t direction, float abs_distance);
 // Structures, responsible for sending through queue
+
+#define MICROSTEP_FACTOR 4
+#define MAX_LENGTH 18600
+#define MAX_ABS_POS 90.0f
+
+
 enum InputType { BUTTON, ENCODER };
 enum ButtonEvent {BUTTON_PRESSED};
 enum MotorEventType {
 	DOCK_CARRIAGE,
 	MOVE,
+	MOVE_BY_TIME
 };
 enum {DOCKING_FIRST_STAGE, DOCKING_SECOND_STAGE};
 
@@ -66,7 +76,15 @@ enum GUI_State {
 	STOP_POSITION_PAGE
 };
 
+inline float internal_to_abs(uint32_t int_position)
+{
+	return (1.0f - ((float) int_position)/MAX_LENGTH) * MAX_ABS_POS;
+}
 
+inline uint32_t abs_to_internal(float abs_position)
+{
+	return (abs_position/MAX_ABS_POS) * MAX_LENGTH;
+}
 
 
 enum GUI_State current_state = INIT_PAGE;
@@ -81,6 +99,10 @@ void init_page()
 		if (buffer_event.input_type == BUTTON)
 		{
 			struct MotorEvent send_event = {.event_type = DOCK_CARRIAGE };
+			xQueueSend(xMotorEvents, &send_event, portMAX_DELAY);
+			send_event.event_type = MOVE_BY_TIME;
+			send_event.abs_dist = 90.0f;
+			send_event.add_data = 3600;
 			xQueueSend(xMotorEvents, &send_event, portMAX_DELAY);
 			current_state = MAIN_PAGE;
 		}
@@ -237,7 +259,6 @@ void main_menu_page()
 			}
 		}
 	}
-
 
 	u8g_FirstPage(&u8g);
 	do
@@ -555,8 +576,7 @@ void move_to_start(uint16_t speed_factor, bool is_microstep)
 }
 
 
-#define MICROSTEP_FACTOR 4
-#define MAX_LENGTH 18600
+
 void move(uint16_t speed_factor, bool is_microstep, uint8_t direction, uint32_t distance)
 {
 	uint8_t mult_coef = 1;
@@ -580,6 +600,30 @@ void move(uint16_t speed_factor, bool is_microstep, uint8_t direction, uint32_t 
 	HAL_GPIO_WritePin(MOTOR_EN_GPIO_Port, MOTOR_EN_Pin, GPIO_PIN_SET);
 
 }
+#define DEFAULT_PSC 720
+#define DEFAULT_ARR 100
+#define STEPS_PER_MM 200
+
+uint32_t timer_divider = 1; // 1 - step rate 1ms
+void move_by_time(uint32_t time_sec, uint8_t direction, float abs_distance)
+{
+	if (direction == FORWARD)
+		HAL_GPIO_WritePin(DIR_GPIO_Port, DIR_Pin, GPIO_PIN_RESET);
+	else if (direction == BACK)
+		HAL_GPIO_WritePin(DIR_GPIO_Port, DIR_Pin, GPIO_PIN_SET);
+	// Microstep disable
+	HAL_GPIO_WritePin(MS2_GPIO_Port, MS2_Pin, GPIO_PIN_RESET);
+	HAL_GPIO_WritePin(MOTOR_EN_GPIO_Port, MOTOR_EN_Pin, GPIO_PIN_RESET);
+
+	timer_divider = 1000 * time_sec / (abs_distance * STEPS_PER_MM);
+	TIM2->ARR = DEFAULT_ARR;
+	position_counter = 0;
+	position_counter_limit = abs_to_internal(abs_distance);
+	motor_enabled = true;
+	while (motor_enabled)
+		osDelay(10);
+	HAL_GPIO_WritePin(MOTOR_EN_GPIO_Port, MOTOR_EN_Pin, GPIO_PIN_SET);
+}
 
 void carriage_docking()
 {
@@ -593,17 +637,25 @@ void carriage_docking()
 
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
-  if (htim->Instance == TIM2)
-  {
-	  if (motor_enabled && (position_counter < position_counter_limit))
-	  {
-		  HAL_GPIO_TogglePin(GPIOB, STEP_Pin);
-		  position_counter++;
-	  } else
-	  {
-		  motor_enabled = false;
-	  }
-  }
+	static timer_divider_counter = 1;
+	if (htim->Instance == TIM2)
+	{
+	if (motor_enabled && (position_counter < position_counter_limit))
+	{
+		if ((timer_divider > 0) && (timer_divider_counter <= timer_divider))
+		{
+			timer_divider_counter++;
+		} else
+		{
+			HAL_GPIO_TogglePin(GPIOB, STEP_Pin);
+			position_counter++;
+			timer_divider_counter = 1;
+		}
+	} else
+		{
+			motor_enabled = false;
+		}
+	}
 }
 
 
@@ -639,19 +691,32 @@ void motorFunc(void const * argument)
 		if ( (n_wait = uxQueueMessagesWaiting(xMotorEvents)) != 0 )
 			{
 				xQueueReceive(xMotorEvents, &buffer_event, 0);
-				if (buffer_event.event_type == DOCK_CARRIAGE)
+				switch (buffer_event.event_type)
+				{
+				case DOCK_CARRIAGE:
 				{
 					carriage_docking();
-				} else if (buffer_event.event_type == MOVE)
+					break;
+				}
+				case MOVE:
 				{
 					uint8_t dir = 1;
 					dir = (buffer_event.data < 0) ? FORWARD : BACK;
 					move(20, true, dir, abs(buffer_event.data)*40);
-
+					break;
+				}
+				case MOVE_BY_TIME:
+				{
+					move_by_time(buffer_event.add_data, FORWARD,
+							buffer_event.abs_dist);
+					break;
+				}
 				}
 			}
 		osDelay(100);
 	}
 }
+
+
 
 
