@@ -51,6 +51,9 @@ osThreadId guiTaskHandle;
 osThreadId motorTaskHandle;
 osMessageQId buttonEventsHandle;
 osMessageQId encoderEventsHandle;
+osTimerId elapsedTimerHandle;
+osTimerId moveTimerHandle;
+osSemaphoreId stopMoveByTimeHandle;
 
 /* USER CODE BEGIN PV */
 QueueHandle_t xInputEvents;
@@ -69,6 +72,8 @@ void StartDefaultTask(void const * argument);
 extern void buttonScanFunc(void const * argument);
 extern void guiFunc(void const * argument);
 extern void motorFunc(void const * argument);
+extern void elapsedTimerCallback(void const * argument);
+extern void moveTimerCallback(void const * argument);
 
 /* USER CODE BEGIN PFP */
 /* Private function prototypes -----------------------------------------------*/
@@ -110,9 +115,23 @@ int main(void)
 	/* add mutexes, ... */
   /* USER CODE END RTOS_MUTEX */
 
+  /* Create the semaphores(s) */
+  /* definition and creation of stopMoveByTime */
+  osSemaphoreDef(stopMoveByTime);
+  stopMoveByTimeHandle = osSemaphoreCreate(osSemaphore(stopMoveByTime), 1);
+
   /* USER CODE BEGIN RTOS_SEMAPHORES */
 	/* add semaphores, ... */
   /* USER CODE END RTOS_SEMAPHORES */
+
+  /* Create the timer(s) */
+  /* definition and creation of elapsedTimer */
+  osTimerDef(elapsedTimer, elapsedTimerCallback);
+  elapsedTimerHandle = osTimerCreate(osTimer(elapsedTimer), osTimerPeriodic, NULL);
+
+  /* definition and creation of moveTimer */
+  osTimerDef(moveTimer, moveTimerCallback);
+  moveTimerHandle = osTimerCreate(osTimer(moveTimer), osTimerPeriodic, NULL);
 
   /* USER CODE BEGIN RTOS_TIMERS */
 	/* start timers, add new ones, ... */

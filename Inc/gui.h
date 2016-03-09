@@ -10,6 +10,9 @@
 void guiFunc(void const * argument);
 void buttonScanFunc(void const * argument);
 void motorFunc(void const * argument);
+void elapsedTimerCallback(void const * argument);
+void moveTimerCallback(void const * argument);
+
 struct Event {
 	uint8_t input_type: 4;
 	uint8_t id: 4;
