@@ -54,6 +54,7 @@ osMessageQId encoderEventsHandle;
 osTimerId elapsedTimerHandle;
 osTimerId moveTimerHandle;
 osSemaphoreId stopMoveByTimeHandle;
+osSemaphoreId suspendMoveByTimeHandle;
 
 /* USER CODE BEGIN PV */
 QueueHandle_t xInputEvents;
@@ -120,7 +121,13 @@ int main(void)
   osSemaphoreDef(stopMoveByTime);
   stopMoveByTimeHandle = osSemaphoreCreate(osSemaphore(stopMoveByTime), 1);
 
+  /* definition and creation of suspendMoveByTime */
+  osSemaphoreDef(suspendMoveByTime);
+  suspendMoveByTimeHandle = osSemaphoreCreate(osSemaphore(suspendMoveByTime), 1);
+
   /* USER CODE BEGIN RTOS_SEMAPHORES */
+  xSemaphoreTake(stopMoveByTimeHandle, 0);
+  xSemaphoreTake(suspendMoveByTimeHandle, 0);
 	/* add semaphores, ... */
   /* USER CODE END RTOS_SEMAPHORES */
 

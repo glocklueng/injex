@@ -1,11 +1,12 @@
 #MicroXplorer Configuration settings - do not modify
-FREERTOS.BinarySemaphores01=stopMoveByTime
-FREERTOS.IPParameters=Tasks01,Queues01,configMINIMAL_STACK_SIZE,configUSE_TIMERS,configTIMER_QUEUE_LENGTH,Timers01,configTOTAL_HEAP_SIZE,BinarySemaphores01
+FREERTOS.BinarySemaphores01=stopMoveByTime;suspendMoveByTime
+FREERTOS.IPParameters=Tasks01,Queues01,configMINIMAL_STACK_SIZE,configUSE_TIMERS,configTIMER_QUEUE_LENGTH,Timers01,configTOTAL_HEAP_SIZE,BinarySemaphores01,configTIMER_TASK_PRIORITY
 FREERTOS.Queues01=buttonEvents,16,uint16_t,NULL;encoderEvents,16,uint16_t,NULL
 FREERTOS.Tasks01=defaultTask,0,64,StartDefaultTask,Default;buttonScanTask,-2,128,buttonScanFunc,As external;guiTask,0,128,guiFunc,As external;motorTask,1,64,motorFunc,As external
 FREERTOS.Timers01=elapsedTimer,elapsedTimerCallback,osTimerPeriodic,As external;moveTimer,moveTimerCallback,osTimerPeriodic,As external
 FREERTOS.configMINIMAL_STACK_SIZE=64
-FREERTOS.configTIMER_QUEUE_LENGTH=5
+FREERTOS.configTIMER_QUEUE_LENGTH=20
+FREERTOS.configTIMER_TASK_PRIORITY=4
 FREERTOS.configTOTAL_HEAP_SIZE=6072
 FREERTOS.configUSE_TIMERS=1
 File.Version=6
